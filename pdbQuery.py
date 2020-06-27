@@ -1,30 +1,54 @@
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import requests
+import urllib
+import json
 import os
-import sys
+import wget
+import re
 
-# PATH = os.path.join(os.path.dirname(sys.argv[0]), "webdriver", "geckodriver")
-# print(PATH)
-UNIPROT_ID = "P60484"
-XPATH = "//tbody"
-# ./webdriver/geckodriver is needed to be put into system PATH
+def getPdbList(uniprotId):
+    # https://search.rcsb.org/index.html#search-services
+    API_URL = "https://search.rcsb.org/rcsbsearch/v1/query?json="
+    SEARCH ='''{"query": {"node_id": 0,"type": "terminal","service": "text","parameters": {"value": "%s"}},"return_type": "entry"}''' % uniprotId
+    req = requests.get(url=API_URL+urllib.parse.quote(SEARCH.replace(" ", ""), safe=':",'))
+    req_json = json.loads(req.text)
+    idList = list(map(lambda x: x["identifier"], req_json["result_set"]))
+    print("%d PDB structure(s) found: %s" % (len(idList), ",".join(idList)))
+    return idList
 
-driver = webdriver.Firefox()
-# driver = webdriver.Firefox("/PATH/TO/DRIVER")
-option = webdriver.FirefoxOptions()
-option.add_argument("--proxy-server=http://127.0.0.1:1080")
-# option.add_argument('--disable-gpu')
-# option.add_argument('blink-settings=imagesEnabled=false')
-# option.add_argument('--headless')
-# option.binary_location = "/PATH/TO/BIN"
-# driver=webdriver.Firefox(firefox_options=option, executable_path=PATH)
-driver=webdriver.Firefox(options=option)
+def batchQueryPdb(idList):
+    DOWNLOAD_URL = "http://files.rcsb.org/download/"
+    if not os.path.exists("PDBs"):
+        os.mkdir("PDBs")
+    else:
+        print("Warning: directory PDBs has existed")
+    for idX in idList:
+        wget.download(DOWNLOAD_URL+idX+".pdb", out="PDBs")
+    return
 
-driver.get("https://www.uniprot.org/uniprot/%s" %UNIPROT_ID)
+def getMetaData(idList):
+    # RegEx Patterns
+    patternDesc = re.compile(r"TITLE.*")
+    patternChain = re.compile(r"COMPND.*CHAIN: .*;")
+    patternChainDesc = re.compile(r"TITLE.*")
+    patternRange = re.compile(r"COMPND.*MOLECULE: [.\n]*;")
+    patternRes = re.compile(r'REMARK.*RESOLUTION.\s*[\d"."]*\s*ANGSTROMS.')
 
-element = WebDriverWait(driver, 30, 0.5).until(EC.presence_of_element_located((By.XPATH, XPATH)))
+    pdbList = list(map(lambda x: "PDBs/%s.pdb" %x.lower(), idList))
+    for pdbX in pdbList:
+        with open(pdbX, "r") as pdbFile:
+            pdbContent = pdbFile.read()
+            desc = (re.sub(r"\s*TITLE\s*\d*\s*", " ", "".join(patternDesc.findall(pdbContent))).strip())
+            print(desc)
+            chains = (re.sub(r"COMPND.*CHAIN:\s*", " ", "".join(patternChain.findall(pdbContent))).strip().replace(";", ""))
+            print(chains)
+            chainsDesc = (re.sub(r"COMPND.*CHAIN:\s*", " ", "".join(patternChain.findall(pdbContent))).strip().replace(";", ""))
+            print("_____________")
 
-pdbTable = driver.find_element_by_xpath(XPATH)
-print(pdbTable.get_attribute("outerHTML"))
+
+
+if __name__ == "__main__":
+    TARGET = "P60484"
+    # idList = getPdbList(TARGET)
+    idList = ['2KYL', '1D5R', '4O1V', '5BUG', '5BZX', '5BZZ']
+    getMetaData(idList)
+    # batchQueryPdb(idList)
